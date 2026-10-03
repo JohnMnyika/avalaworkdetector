@@ -1,0 +1,12 @@
+{
+  "name": "avala-work-alert-pro",
+  "version": "1.0.5",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  },
+  "devDependencies": {
+    "jsdom": "^26.0.0"
+  }
+}

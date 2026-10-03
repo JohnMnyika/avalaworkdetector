@@ -1,0 +1,40 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {freshState,defaults,cleanSettings} from '../lib/storage.js';
+import {applyScan,nextAlertAt} from '../lib/state.js';
+const scan=(ids)=>({status:ids.length?'WORK_AVAILABLE':'NO_WORK',batches:ids.map(id=>({id,claimed:2,done:2}))});
+const run=(s,ids,t=100000,opts={},tab=1)=>applyScan(s,{...defaults,...opts},scan(ids),tab,t);
+test('available work alerts initially and after refresh, but not on retries or loading',()=>{
+ const s=freshState();
+ const report=(pageId,status='WORK_AVAILABLE')=>applyScan(s,defaults,{...scan(status==='WORK_AVAILABLE'?['f6c2f3']:[]),status,pageId},1,100000);
+ report('first','LOADING');assert.equal(Object.keys(s.queue).length,0);
+ report('first');assert.equal(s.queue['id:f6c2f3'].type,'WORK_AVAILABLE');
+ s.queue={};report('first');report('first','LOADING');report('first');assert.equal(Object.keys(s.queue).length,0);
+ report('refreshed','LOADING');report('refreshed');assert.equal(s.queue['id:f6c2f3'].type,'WORK_AVAILABLE');
+ s.queue={};report('empty','NO_WORK');assert.equal(Object.keys(s.queue).length,0);
+ applyScan(s,defaults,{status:'NO_WORK',batches:[],inProgressIds:['f6c2f3'],pageId:'picked'},1,100001);assert.equal(Object.keys(s.queue).length,0);
+});
+test('refresh alerts can be disabled to retain new-ID-only behavior',()=>{
+ const s=freshState();
+ for(const pageId of ['first','second']) applyScan(s,{...defaults,alertOnRefresh:false},{...scan(['a']),pageId},1,100000);
+ assert.equal(Object.keys(s.queue).length,0);
+});
+test('empty baseline, new work, refresh, second tab and persisted restart deduplicate',()=>{let s=freshState();run(s,[]);run(s,['a']);assert.equal(Object.keys(s.queue).length,1);s.queue={};s=JSON.parse(JSON.stringify(s));run(s,['a'],100001,{},2);assert.equal(Object.keys(s.queue).length,0);assert.equal(s.stats.detections,1);});
+test('initial existing work is a silent baseline; optional first alert',()=>{const s=freshState();run(s,['a','b']);assert.equal(Object.keys(s.queue).length,0);run(s,['a','b','c']);assert.deepEqual(Object.values(s.queue).map(e=>e.batch.id),['c']);const t=freshState();run(t,['a'],100000,{initialAlert:true});assert.equal(Object.keys(t.queue).length,1);});
+test('multiple new batches combine and cooldown retains queue',()=>{const s=freshState();run(s,[]);run(s,['a','b']);s.lastNotification=100000;assert.equal(nextAlertAt(s,{...defaults,cooldown:60},100010),160000);assert.equal(Object.keys(s.queue).length,2);assert.equal(Object.keys(JSON.parse(JSON.stringify(s)).queue).length,2);});
+test('updates opt in and missing fields are safe',()=>{const s=freshState();run(s,['a']);applyScan(s,defaults,{status:'WORK_AVAILABLE',batches:[{id:'a',claimed:4}]},1,100001);assert.equal(Object.keys(s.queue).length,0);applyScan(s,{...defaults,alertChanges:true},{status:'WORK_AVAILABLE',batches:[{id:'a',claimed:5}]},1,100002);assert.equal(s.queue['id:a'].type,'BATCH_UPDATED');});
+test('temporary disappearance retains known batch, optional reappearance delay',()=>{const s=freshState();run(s,['a']);run(s,[],200000);assert.ok(s.knownBatches['id:a']);run(s,['a'],300000);assert.equal(Object.keys(s.queue).length,0);run(s,[],400000);run(s,['a'],400000+3600001,{realertHours:1});assert.equal(s.queue['id:a'].type,'NEW_BATCH');});
+test('loading never initializes baseline or marks batches missing',()=>{const s=freshState();applyScan(s,defaults,{status:'LOADING',batches:[]},1);assert.equal(s.baseline,false);run(s,['a']);applyScan(s,defaults,{status:'ERROR',batches:[],error:'DOM changed'},1);assert.equal(s.knownBatches['id:a'].missingSince,null);});
+test('retention and prototype-shaped IDs are safe',()=>{const s=freshState();run(s,['__proto__','constructor']);assert.equal(Object.keys(s.knownBatches).length,2);run(s,[],100000+8*86400000);assert.equal(Object.keys(s.knownBatches).length,0);});
+test('settings enforce allowed ranges',()=>{const s=cleanSettings({...defaults,retentionDays:-1,volume:500,cooldown:2});assert.equal(s.retentionDays,7);assert.equal(s.volume,100);assert.equal(s.cooldown,0);});
+test('picked-only baseline stays silent, later unclaimed arrival alerts once and claiming cancels pending alert',()=>{
+ const s=freshState();
+ applyScan(s,defaults,{status:'NO_WORK',batches:[],inProgressIds:['picked']},1,100000);
+ assert.equal(s.baseline,true);assert.equal(Object.keys(s.queue).length,0);
+ run(s,[],100001);assert.equal(Object.keys(s.queue).length,0);
+ run(s,['new'],100002);assert.equal(Object.keys(s.queue).length,1);
+ s.queue={};run(s,['new'],100003);assert.equal(Object.keys(s.queue).length,0);
+ run(s,['new','next'],100004);assert.equal(Object.keys(s.queue).length,1);
+ applyScan(s,defaults,{status:'NO_WORK',batches:[],inProgressIds:['new','next']},1,100005);
+ assert.equal(Object.keys(s.queue).length,0);assert.equal(s.unread.length,0);
+});
