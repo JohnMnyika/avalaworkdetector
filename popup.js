@@ -1,5 +1,6 @@
 const $=id=>document.getElementById(id);
 const time=value=>value?new Date(value).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';
+const dayKey=value=>{const date=new Date(value),year=date.getFullYear(),month=String(date.getMonth()+1).padStart(2,'0'),day=String(date.getDate()).padStart(2,'0');return `${year}-${month}-${day}`;};
 const request=async(type,extra={})=>{const result=await chrome.runtime.sendMessage({type,...extra});if(result?.error) throw Error(result.error);return result;};
 async function render() {
  const {state,settings,current}=await request('GET_STATE');
@@ -7,10 +8,11 @@ async function render() {
  $('status').dataset.status=current.status;$('statusTitle').textContent=names[current.status];
  $('connection').textContent=['WORK_AVAILABLE','NO_WORK'].includes(current.status)?'● Monitoring Avala':'○ '+(current.status==='NOT_ON_AVALA'?'Not connected':'Waiting for a valid scan');
  $('statusDetail').textContent=current.status==='WORK_AVAILABLE'?`${current.batches.length} visible · ${state.unread.length} unseen`:current.status==='NO_WORK'?(current.inProgressIds?.length?`${current.inProgressIds.length} already picked · Waiting for new work…`:'Monitoring dashboard…'):current.error||'Keep your logged-in worker dashboard open.';
- $('detections').textContent=state.stats.day===new Date().toLocaleDateString('en-CA')?state.stats.detections:0;$('notifications').textContent=state.stats.day===new Date().toLocaleDateString('en-CA')?state.stats.notifications:0;
+ const today=dayKey(Date.now());
+ $('detections').textContent=state.stats?.day===today?state.stats.detections:0;$('notifications').textContent=state.stats?.day===today?state.stats.notifications:0;
  $('lastScan').textContent=time(state.lastScanTime);$('lastAlert').textContent=time(state.lastNotification);
  $('batches').replaceChildren();
- for(const batch of current.batches||[]) {const card=document.createElement('div');card.className='batch';const title=document.createElement('h3');title.textContent=batch.name||batch.id;const type=document.createElement('p');type.textContent=batch.type||'Work batch';const counts=document.createElement('p');counts.textContent=`Claimed: ${batch.claimed??'—'}  ·  Done: ${batch.done??'—'}`;card.append(title,type,counts);$('batches').append(card);}
+ for(const batch of current.batches||[]) {const card=document.createElement('div');card.className='batch';const title=document.createElement('h3');if(batch.url&&/^https:\/\/avala\.ai(?:\/|$)/i.test(batch.url)){const link=document.createElement('a');link.href=batch.url;link.textContent=batch.name||batch.id;link.target='_blank';link.rel='noopener noreferrer';title.append(link);}else title.textContent=batch.name||batch.id;const type=document.createElement('p');type.textContent=batch.type||'Work batch';const counts=document.createElement('p');counts.textContent=`Claimed: ${batch.claimed??'—'}  ·  Done: ${batch.done??'—'}`;card.append(title,type,counts);$('batches').append(card);}
  if(!(current.batches||[]).length) {
   const empty=document.createElement('div');empty.className='empty-state';
   const title=document.createElement('strong'),detail=document.createElement('p');

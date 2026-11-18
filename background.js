@@ -104,7 +104,7 @@ chrome.runtime.onMessage.addListener((message,sender,respond)=>{
  serial(()=>handle(message,sender)).then(respond,e=>respond({error:e.message}));return true;
 });
 chrome.alarms.onAlarm.addListener(alarm=>serial(async()=>{const {state,settings}=await readStore();if(alarm.name==='queue'||alarm.name==='maintenance') await flush(state,settings);if(alarm.name==='test-badge') await badge(state,settings);if(alarm.name==='maintenance'){for(const [key,b] of Object.entries(state.knownBatches)) if(Date.now()-b.lastSeen>settings.retentionDays*86400000) delete state.knownBatches[key];await saveState(state);}}));
-chrome.notifications.onClicked.addListener(id=>{if(id.startsWith('avala-')) serial(async()=>{const {state}=await readStore();await stopAlert();await focusWork(state.history[0]?.tabId);await chrome.notifications.clear(id);});});
+chrome.notifications.onClicked.addListener(id=>{if(id.startsWith('avala-')) serial(async()=>{const {state,settings}=await readStore();await stopAlert();state.unread=[];await saveState(state);await badge(state,settings);await focusWork(state.history[0]?.tabId);await chrome.notifications.clear(id);});});
 chrome.tabs.onRemoved.addListener(id=>serial(async()=>{const {state,settings}=await readStore();delete state.tabs[id];if(!Object.values(state.tabs).some(t=>t.status==='WORK_AVAILABLE')) state.unread=[];await saveState(state);await badge(state,settings);}));
 chrome.tabs.onUpdated.addListener((id,change)=>{if(change.status==='loading') serial(async()=>{const {state}=await readStore();delete state.tabs[id];await saveState(state);});});
 async function recover() {const {state,settings}=await readStore();await chrome.alarms.create('maintenance',{periodInMinutes:60});await badge(state,settings);await flush(state,settings);}

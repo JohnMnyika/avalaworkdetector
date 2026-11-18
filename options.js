@@ -23,8 +23,13 @@ document.getElementById('settings').onsubmit=async event=>{
   const settings={};
   for(const key of Object.keys(defaults)) {
    const input=document.getElementById(key);
-   if(input.type==='text'&&input.value) document.querySelector(input.value);
    settings[key]=input.type==='checkbox'?input.checked:input.value;
+  }
+  for(const key of ['sectionSelector','cardSelector']) {
+   const selector=settings[key].trim();
+   if(selector) {
+    try {document.querySelector(selector);} catch {throw Error(`Invalid CSS selector for ${key==='sectionSelector'?'Available Work container':'Batch card'}: ${selector}`);}
+   }
   }
   await request('SAVE_SETTINGS',{settings});feedback.textContent='Settings saved. Your selections will remain after refreshing.';
  } catch(e) {feedback.textContent=e.message;} finally {busy(false);}
